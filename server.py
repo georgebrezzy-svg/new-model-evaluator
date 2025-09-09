@@ -87,7 +87,10 @@ def decide(gender, height_cm, age, best_sim, parsed):
     # hard rules
     if age is not None and (age < 16 or age > 23):
         return "REJECTED", "Age outside 16–23"
-    if gender == "Male" and (height_cm is not None) and not (183 <= height_cm <= 190):
-        return "REJECTED", "Male height outside 183–190"
-    if gender == "Female" a
+    gender = (data.get("gender") or "").strip()
+if gender.lower() in ("male", "m"):
+    gender = "Male"
+elif gender.lower() in ("female", "f"):
+    gender = "Female"
+
 
