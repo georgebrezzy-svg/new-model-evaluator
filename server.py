@@ -14,11 +14,17 @@ CORS(app)  # allow requests from Bubble
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 HEADERS = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
 
-# ----- Load memory (embeddings.json must be present) -----
-with open("embeddings.json", "r", encoding="utf-8") as f:
-    MEM = json.load(f)
-MEM_MAT = np.array([m["embedding"] for m in MEM], dtype=np.float32)
-MEM_MAT = MEM_MAT / (np.linalg.norm(MEM_MAT, axis=1, keepdims=True) + 1e-12)
+# ----- Load memory (embeddings.json optional & safe) -----
+try:
+    with open("embeddings.json", "r", encoding="utf-8") as f:
+        MEM = json.load(f)
+    MEM_MAT = np.array([m["embedding"] for m in MEM], dtype=np.float32)
+    MEM_MAT = MEM_MAT / (np.linalg.norm(MEM_MAT, axis=1, keepdims=True) + 1e-12)
+except Exception:
+    # If the file is missing or malformed, continue without memory
+    MEM = []
+    MEM_MAT = None
+
 
 # ----- Helpers -----
 def describe_image(url: str) -> str:
@@ -48,17 +54,22 @@ def embed_text(text: str) -> np.ndarray:
     v = np.array(r.json()["data"][0]["embedding"], dtype=np.float32)
     return v / (np.linalg.norm(v) + 1e-12)
 
-def score_photos(photo_urls):
+defdef score_photos(photo_urls):
     details = []
     best_overall = 0.0
     for url in photo_urls:
         desc = describe_image(url)
-        vec = embed_text(desc)
-        sims = MEM_MAT @ vec
-        best = float(np.max(sims))
+        best = 0.0
+        if MEM_MAT is not None:
+            # Only compute similarity if memory is available
+            vec = embed_text(desc)
+            sims = MEM_MAT @ vec
+            best = float(np.max(sims))
+        # If no memory, best stays 0.0 (the app still works)
         best_overall = max(best_overall, best)
         details.append({"url": url, "desc": desc, "best_similarity": round(best, 3)})
     return best_overall, details
+
 
 def parse_measurements(meas_str):
     # very tolerant parser: "84-60-89", "84/60/89", "32-24-35 in"
