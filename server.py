@@ -1,4 +1,4 @@
-# ---------- server.py (full file) ----------
+# ---------- server.py (clean, working) ----------
 
 import os, json, math
 from flask import Flask, request, jsonify
@@ -21,10 +21,8 @@ try:
     MEM_MAT = np.array([m["embedding"] for m in MEM], dtype=np.float32)
     MEM_MAT = MEM_MAT / (np.linalg.norm(MEM_MAT, axis=1, keepdims=True) + 1e-12)
 except Exception:
-    # If the file is missing or malformed, continue without memory
     MEM = []
     MEM_MAT = None
-
 
 # ----- Helpers -----
 def describe_image(url: str) -> str:
@@ -54,37 +52,35 @@ def embed_text(text: str) -> np.ndarray:
     v = np.array(r.json()["data"][0]["embedding"], dtype=np.float32)
     return v / (np.linalg.norm(v) + 1e-12)
 
-defdef score_photos(photo_urls):
+def score_photos(photo_urls):
     details = []
     best_overall = 0.0
     for url in photo_urls:
         desc = describe_image(url)
         best = 0.0
         if MEM_MAT is not None:
-            # Only compute similarity if memory is available
             vec = embed_text(desc)
             sims = MEM_MAT @ vec
             best = float(np.max(sims))
-        # If no memory, best stays 0.0 (the app still works)
         best_overall = max(best_overall, best)
         details.append({"url": url, "desc": desc, "best_similarity": round(best, 3)})
     return best_overall, details
 
-
 def parse_measurements(meas_str):
-    # very tolerant parser: "84-60-89", "84/60/89", "32-24-35 in"
     import re
-    if not meas_str or not isinstance(meas_str, str): return None
+    if not meas_str or not isinstance(meas_str, str):
+        return None
     s = meas_str.strip().lower()
     unit = "cm"
     if " in" in s or s.endswith("in"):
         unit = "in"
     s_clean = re.sub(r"[^0-9\-/ ,.]", " ", s)
     parts = [p for p in re.split(r"[-/ ,]+", s_clean) if p]
-    if len(parts) < 3: return None
+    if len(parts) < 3:
+        return None
     vals = [float(parts[0]), float(parts[1]), float(parts[2])]
     if unit == "in":
-        vals = [round(v*2.54, 1) for v in vals]
+        vals = [round(v * 2.54, 1) for v in vals]
     return {"bust_or_chest": vals[0], "waist": vals[1], "hips": vals[2]}
 
 def decide(gender, height_cm, age, best_sim, parsed):
@@ -93,25 +89,5 @@ def decide(gender, height_cm, age, best_sim, parsed):
         return "REJECTED", "Age outside 16–23"
     if gender == "Male" and (height_cm is not None) and not (183 <= height_cm <= 190):
         return "REJECTED", "Male height outside 183–190"
-    if gender == "Female" and (height_cm is not None) and not (175 <= height_cm <= 180):
-        return "REJECTED", "Female height outside 175–180"
-    # similarity thresholds
-    if best_sim >= 0.78:
-        return "SELECTED", ""
-    if best_sim >= 0.60:
-        return "NEEDS_REVIEW", ""
-    return "REJECTED", "Low similarity to preferred look"
+    if gender == "Female" a
 
-def _to_float_or_none(x):
-    if x is None:
-        return None
-    s = str(x).strip()
-    if s == "" or s.lower() in ("none", "null", "nan"):
-        return None
-    s = s.replace(",", "")
-    try:
-        return float(s)
-    except Exception:
-        return None
-
-# -----
