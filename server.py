@@ -1,96 +1,60 @@
-# ---------- server.py (clean, working) ----------
+# ---------- server.py (minimal working version) ----------
 
-import os, json, math
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import numpy as np
-import requests
-from werkzeug.exceptions import BadRequest
+import json as _json
 
 app = Flask(__name__)
-CORS(app)  # allow requests from Bubble
+CORS(app)  # allow Bubble to call this API
 
-# ----- OpenAI setup -----
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-HEADERS = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+# Health check
+@app.route("/ping", methods=["GET"])
+def ping():
+    return jsonify({"ok": True})
 
-# ----- Load memory (embeddings.json optional & safe) -----
-try:
-    with open("embeddings.json", "r", encoding="utf-8") as f:
-        MEM = json.load(f)
-    MEM_MAT = np.array([m["embedding"] for m in MEM], dtype=np.float32)
-    MEM_MAT = MEM_MAT / (np.linalg.norm(MEM_MAT, axis=1, keepdims=True) + 1e-12)
-except Exception:
-    MEM = []
-    MEM_MAT = None
+# Minimal evaluator so Bubble can work end-to-end
+@app.route("/evaluate", methods=["POST"])
+def evaluate():
+    # Read JSON safely (works even if Bubble sends empty strings)
+    data = request.get_json(silent=True)
+    if not data:
+        raw = (request.data or b"").decode("utf-8", errors="ignore")
+        try:
+            data = _json.loads(raw) if raw else {}
+        except Exception:
+            data = {}
+    if not data and request.form:
+        data = request.form.to_dict(flat=True)
+    data = data or {}
 
-# ----- Helpers -----
-def describe_image(url: str) -> str:
-    body = {
-        "model": "gpt-4o-mini",
-        "temperature": 0,
-        "messages": [
-            {"role": "system", "content": (
-                "Describe the subject for fashion modeling suitability. "
-                "Max 2 lines. Avoid sensitive attributes; focus on symmetry, bone structure, "
-                "proportions, skin clarity, posture, and editorial/commercial vibe."
-            )},
-            {"role": "user", "content": [
-                {"type": "text", "text": "Describe this applicant image."},
-                {"type": "image_url", "image_url": {"url": url}}
-            ]}
-        ]
-    }
-    r = requests.post("https://api.openai.com/v1/chat/completions", headers=HEADERS, json=body, timeout=90)
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"].strip()
+    photos = data.get("photos") or []
+    if isinstance(photos, str):
+        photos = [p.strip() for p in photos.split(",") if p.strip()]
 
-def embed_text(text: str) -> np.ndarray:
-    body = {"model": "text-embedding-3-large", "input": text}
-    r = requests.post("https://api.openai.com/v1/embeddings", headers=HEADERS, json=body, timeout=60)
-    r.raise_for_status()
-    v = np.array(r.json()["data"][0]["embedding"], dtype=np.float32)
-    return v / (np.linalg.norm(v) + 1e-12)
+    gender = (str(data.get("gender") or "")).strip()
+    height_cm = str(data.get("height_cm") or "").strip()
+    age = str(data.get("age") or "").strip()
+    measurements = (str(data.get("measurements") or "")).strip()
 
-def score_photos(photo_urls):
-    details = []
-    best_overall = 0.0
-    for url in photo_urls:
-        desc = describe_image(url)
-        best = 0.0
-        if MEM_MAT is not None:
-            vec = embed_text(desc)
-            sims = MEM_MAT @ vec
-            best = float(np.max(sims))
-        best_overall = max(best_overall, best)
-        details.append({"url": url, "desc": desc, "best_similarity": round(best, 3)})
-    return best_overall, details
+    # Build a simple details_text so you can map it in Bubble
+    details_text = "; ".join(photos[:2]) if photos else ""
 
-def parse_measurements(meas_str):
-    import re
-    if not meas_str or not isinstance(meas_str, str):
-        return None
-    s = meas_str.strip().lower()
-    unit = "cm"
-    if " in" in s or s.endswith("in"):
-        unit = "in"
-    s_clean = re.sub(r"[^0-9\-/ ,.]", " ", s)
-    parts = [p for p in re.split(r"[-/ ,]+", s_clean) if p]
-    if len(parts) < 3:
-        return None
-    vals = [float(parts[0]), float(parts[1]), float(parts[2])]
-    if unit == "in":
-        vals = [round(v * 2.54, 1) for v in vals]
-    return {"bust_or_chest": vals[0], "waist": vals[1], "hips": vals[2]}
+    # Return a valid, predictable shape (you can wire this in Bubble now)
+    return jsonify({
+        "decision": "review",
+        "confidence": 0.75,
+        "reason": "Endpoint OK; mock evaluation response.",
+        "details": [
+            {"url": p, "desc": "provided", "best_similarity": 0.0}
+            for p in photos[:2]
+        ],
+        "details_text": details_text,
+        "parsed_measurements_cm": None
+    }), 200
 
-def decide(gender, height_cm, age, best_sim, parsed):
-    # hard rules
-    if age is not None and (age < 16 or age > 23):
-        return "REJECTED", "Age outside 16–23"
-    gender = (data.get("gender") or "").strip()
-if gender.lower() in ("male", "m"):
-    gender = "Male"
-elif gender.lower() in ("female", "f"):
-    gender = "Female"
+if __name__ == "__main__":
+    import os
+    port = int(os.environ.get("PORT", "10000"))
+    app.run(host="0.0.0.0", port=port, debug=False)
 
-
+# ---------- end ----------
