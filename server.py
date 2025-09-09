@@ -1,3 +1,5 @@
+CORS(app)  # allow all origins (Bubble)
+from flask_cors import CORS
 import os, json, math
 from flask import Flask, request, jsonify
 import numpy as np
@@ -119,14 +121,21 @@ def evaluate():
         best_sim, details = score_photos(photos[:5])  # first 1–5 photos
         parsed = parse_measurements(measurements)
         decision, reason = decide(gender, height_cm, age, best_sim, parsed)
+        # Flatten details list into a single text string (for Bubble text mapping)
+details_text = "; ".join(
+    f"{d.get('url','')} — {d.get('desc','')} (sim={d.get('best_similarity','')})"
+    for d in details
+)
 
-        return jsonify({
-            "decision": decision,
-            "confidence": round(best_sim, 3),
-            "reason": reason,  # always present so Bubble can map it
-            "details": details,
-            "parsed_measurements_cm": parsed
-        })
+       return jsonify({
+    "decision": decision,
+    "confidence": round(best_sim, 3),
+    "reason": reason,                  # always present
+    "details": details,                # list of objects
+    "details_text": details_text,      # NEW: flattened string
+    "parsed_measurements_cm": parsed
+})
+
     except requests.HTTPError as e:
         return jsonify({"error": "OpenAI error", "detail": str(e), "body": getattr(e.response, 'text', '')}), 502
     except Exception as e:
